@@ -34,18 +34,19 @@ pipeline {
 
     stage('Login & Push Images') {
       steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-login',
-                                         usernameVariable: 'DOCKER_USER',
-                                         passwordVariable: 'DOCKER_PASS')]) {
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'dockerhub-login',
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
+          )
+        ]) {
           sh '''
-            # Login using Docker Hub token
-            printf '%s' "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            printf "%s" "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-            # Re-tag images under your Docker Hub namespace
             docker tag backend-temp:latest ${BACKEND_IMAGE}
             docker tag frontend-temp:latest ${FRONTEND_IMAGE}
 
-            # Push the new images
             docker push ${BACKEND_IMAGE}
             docker push ${FRONTEND_IMAGE}
 
