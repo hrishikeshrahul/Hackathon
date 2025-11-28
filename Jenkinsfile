@@ -1,83 +1,84 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        // Jenkins credentials ID that stores Docker Hub username/password
-        DOCKERHUB = credentials('dockerhub-login')
+  environment {
+    BACKEND_IMAGE = "hrishikeshrahul/mean-backend:latest"
+    FRONTEND_IMAGE = "hrishikeshrahul/mean-frontend:latest"
+    TEMP_BACKEND = "backend-temp:latest"
+    TEMP_FRONTEND = "frontend-temp:latest"
+  }
 
-        // Docker Hub username
-        DOCKERHUB_USERNAME = "samanth195"
-
-        // Docker image names
-        BACKEND_IMAGE = "${DOCKERHUB_USERNAME}/mean-backend:latest"
-        FRONTEND_IMAGE = "${DOCKERHUB_USERNAME}/mean-frontend:latest"
+  stages {
+    stage('Checkout') {
+      steps {
+        // uses the Jenkinsfile from SCM by default when job is configured to pull from repo
+        checkout scm
+      }
     }
 
-    stages {
-
-        stage('Checkout Code') {
-            steps {
-                git branch: 'main', url: 'https://github.com/samanthreddy245-debug/crud-dd-task-mean-app.git'
-            }
-        }
-
-        stage('Build Backend Image') {
-            steps {
-                sh '''
-                    cd backend
-                    docker build -t ${BACKEND_IMAGE} .
-                '''
-            }
-        }
-
-        stage('Build Frontend Image') {
-            steps {
-                sh '''
-                    cd frontend
-                    docker build -t ${FRONTEND_IMAGE} .
-                '''
-            }
-        }
-
-        stage('Login to Docker Hub & Push Images') {
-            steps {
-                sh '''
-                    echo "${DOCKERHUB_PSW}" | docker login -u "${DOCKERHUB_USR}" --password-stdin
-                    docker push ${BACKEND_IMAGE}
-                    docker push ${FRONTEND_IMAGE}
-                '''
-            }
-        }
-
-        stage('Deploy using Docker Compose') {
-            steps {
-                sh '''
-                    echo "🔥 Stopping old containers to avoid conflicts..."
-                    
-                    # Navigate to Jenkins workspace where compose file is located
-                    cd /var/lib/jenkins/workspace/mean-app-cicd
-                    
-                    # Stop & remove old containers
-                    docker compose down --remove-orphans
-
-                    echo "📥 Pulling latest images from Docker Hub..."
-                    docker compose pull
-
-                    echo "🚀 Starting new containers..."
-                    docker compose up -d --force-recreate
-
-                    echo "🎉 Deployment completed successfully!"
-                '''
-            }
-        }
+    stage('Build Backend') {
+      steps {
+        sh '''
+          set -euo pipefail
+          cd backend
+          docker build -t ${TEMP_BACKEND} .
+        '''
+      }
     }
 
-    post {
-        success {
-            echo "✅ Pipeline completed successfully!"
-        }
-        failure {
-            echo "❌ Pipeline failed! Check the logs."
-        }
+    stage('Build Frontend') {
+      steps {
+        sh '''
+          set -euo pipefail
+          cd frontend
+          docker build -t ${TEMP_FRONTEND} .
+        '''
+      }
     }
+
+    stage('Login & Push Images') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-login',
+                                         usernameVariable: 'DOCKER_USER',
+                                         passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            set -euo pipefail
+            # pipe the token into docker login (must use token starting with dckr_pat_... stored in Jenkins)
+            printf '%s' "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+            # retag to your Docker Hub namespace
+            docker tag ${TEMP_BACKEND} ${BACKEND_IMAGE} || true
+            docker tag ${TEMP_FRONTEND} ${FRONTEND_IMAGE} || true
+
+            # push
+            docker push ${BACKEND_IMAGE}
+            docker push ${FRONTEND_IMAGE}
+
+            # logout to avoid leaving credentials on node
+            docker logout
+          '''
+        }
+      }
+    }
+
+    stage('Deploy using Docker Compose') {
+      steps {
+        sh '''
+          set -euo pipefail
+          # make sure docker-compose file is present at repo root
+          docker compose down || true
+          docker compose up -d --build
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Pipeline finished successfully."
+    }
+    failure {
+      echo "❌ Pipeline failed. Check logs."
+    }
+  }
 }
