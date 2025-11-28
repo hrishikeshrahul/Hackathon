@@ -4,14 +4,12 @@ pipeline {
   environment {
     BACKEND_IMAGE = "hrishikeshrahul/mean-backend:latest"
     FRONTEND_IMAGE = "hrishikeshrahul/mean-frontend:latest"
-    TEMP_BACKEND = "backend-temp:latest"
-    TEMP_FRONTEND = "frontend-temp:latest"
   }
 
   stages {
+
     stage('Checkout') {
       steps {
-        // uses the Jenkinsfile from SCM by default when job is configured to pull from repo
         checkout scm
       }
     }
@@ -19,9 +17,8 @@ pipeline {
     stage('Build Backend') {
       steps {
         sh '''
-          set -euo pipefail
           cd backend
-          docker build -t ${TEMP_BACKEND} .
+          docker build -t backend-temp:latest .
         '''
       }
     }
@@ -29,9 +26,8 @@ pipeline {
     stage('Build Frontend') {
       steps {
         sh '''
-          set -euo pipefail
           cd frontend
-          docker build -t ${TEMP_FRONTEND} .
+          docker build -t frontend-temp:latest .
         '''
       }
     }
@@ -42,19 +38,17 @@ pipeline {
                                          usernameVariable: 'DOCKER_USER',
                                          passwordVariable: 'DOCKER_PASS')]) {
           sh '''
-            set -euo pipefail
-            # pipe the token into docker login (must use token starting with dckr_pat_... stored in Jenkins)
+            # Login using Docker Hub token
             printf '%s' "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-            # retag to your Docker Hub namespace
-            docker tag ${TEMP_BACKEND} ${BACKEND_IMAGE} || true
-            docker tag ${TEMP_FRONTEND} ${FRONTEND_IMAGE} || true
+            # Re-tag images under your Docker Hub namespace
+            docker tag backend-temp:latest ${BACKEND_IMAGE}
+            docker tag frontend-temp:latest ${FRONTEND_IMAGE}
 
-            # push
+            # Push the new images
             docker push ${BACKEND_IMAGE}
             docker push ${FRONTEND_IMAGE}
 
-            # logout to avoid leaving credentials on node
             docker logout
           '''
         }
@@ -64,8 +58,6 @@ pipeline {
     stage('Deploy using Docker Compose') {
       steps {
         sh '''
-          set -euo pipefail
-          # make sure docker-compose file is present at repo root
           docker compose down || true
           docker compose up -d --build
         '''
@@ -75,10 +67,10 @@ pipeline {
 
   post {
     success {
-      echo "✅ Pipeline finished successfully."
+      echo "✅ Deployment successful!"
     }
     failure {
-      echo "❌ Pipeline failed. Check logs."
+      echo "❌ Deployment failed!"
     }
   }
 }
